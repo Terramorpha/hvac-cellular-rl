@@ -1,0 +1,5 @@
+#+title: HVAC cellular reinforcement learning
+
+Our goal is to transfer the approached presented in
+https://arxiv.org/pdf/2007.04976 to the problem of HVAC. To do this, we use
+[[https://www.energycodes.gov/prototype-building-models][building models from the DOA]] to train our cellular policy.
