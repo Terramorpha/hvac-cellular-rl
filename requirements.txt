@@ -1,6 +1,9 @@
 beautifulsoup4==4.8.0
+cloudpickle==3.0.0
 decorator==5.1.1
 eppy==0.5.63
+Farama-Notifications==0.0.4
+gymnasium==0.29.1
 lxml==5.2.2
 munch==4.0.0
 networkx==3.3
