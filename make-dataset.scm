@@ -5,22 +5,27 @@
 ;;; converter, then through the ExpandObjects program and finally through the
 ;;; ConvertInputFormat to turn it into epJSON.
 
-(use-modules (guix gexp)
-             (guix build utils)
-             (terramorpha packages energyplus))
+(use-modules
+ (srfi srfi-1)
+ (guix gexp)
+ (guix build utils)
+ (terramorpha packages energyplus))
+
 (define versions
-  '("9.0.0"
-    "9.1.0"
-    "9.2.0"
-    "9.3.0"
-    "9.4.0"
+  '(;; "9.0.0"
+    ;; "9.1.0"
+    ;; "9.2.0"
+    ;; "9.3.0"
+    ;; "9.4.0"
     "9.5.0"
     "9.6.0"
     "22.1.0"
     "22.2.0"
     "23.1.0"
     "23.2.0"
-    "24.1.0"))
+    "24.1.0"
+    ))
+
 (define* (update-version file #:key from to)
   (define (turn-version v)
     (string-map (lambda (c) (if (eq? c #\.)
@@ -49,26 +54,27 @@
        (copy-file "./file.idfnew"
                   #$output))))
 
+(define (update-all-the-way filename)
+  (define name (basename filename))
+  (define transitions (map (lambda (from to)
+                             (lambda (file)
+                               (computed-file (string-append (car (string-split name #\.)) "-" to ".idf")
+                                              (update-version file
+                                                              #:from from
+                                                              #:to to)
+                                              #:local-build? #f)))
+
+                           (list-head versions (1- (length versions)))
+                           (cdr versions)))
+
+(fold (lambda (updater file) (updater file))
+      (local-file filename) transitions))
+
 (define prof
   (getenv "GUIX_LOAD_PROFILE"))
 
 (define all-idf-files
   (find-files (string-append prof "/share/energyplus/buildings/") ".*\\.idf"))
-
-(define (update-all-the-way filename)
-  (define name (basename filename))
-  (define (next v1 v2 file)
-    (computed-file name (update-version file #:from v1 #:to v2) #:local-build? #f))
-
-  (define v9.5.0 (local-file filename))
-  (define v9.6.0 (next "9.5.0" "9.6.0" v9.5.0))
-  (define v22.1.0 (next "9.6.0" "22.1.0" v9.6.0))
-  (define v22.2.0 (next "22.1.0" "22.2.0" v22.1.0))
-  (define v23.1.0 (next "22.2.0" "23.1.0" v22.2.0))
-  (define v23.2.0 (next "23.1.0" "23.2.0" v23.1.0))
-  (define v24.1.0 (next "23.2.0" "24.1.0" v23.2.0))
-  v24.1.0)
-
 
 (define all-the-updated-files
   (map update-all-the-way all-idf-files))
@@ -105,9 +111,11 @@
         (use-modules (guix build utils))
         (copy-file #$file "./in.idf")
         (invoke #$(file-append energyplus "/bin/ConvertInputFormat") "./in.idf")
-        (copy-file "./in.epJSON" #$output)))))
+        (copy-file "./in.epJSON" #$output)))
+   #:local-build? #f))
 
 
-(convert-format
- (expand-objects
-  (update-all-the-way "./file.idf")))
+;; (convert-format
+;;  (expand-objects
+;;   (update-all-the-way "./file.idf")))
+new-dataset
