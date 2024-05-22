@@ -5,12 +5,16 @@ import eppy
 from eppy.modeleditor import IDF
 from networkx.drawing import nx_pydot
 from networkx import Graph, DiGraph, draw, all_simple_paths
+import profile
+import rdflib
+import json
+
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
-# Initialize a directed graph
 
+# Initialize a directed graph
 # Add nodes and edges based on some relationships
 # Here we're adding zones and their associated HVAC systems as an example
 def equipment_graph(idf, graph=DiGraph()):
@@ -20,12 +24,20 @@ def equipment_graph(idf, graph=DiGraph()):
         equipment = obj.Zone_Conditioning_Equipment_List_Name
         graph.add_node(equipment, type='Equipment')
         graph.add_edge(zone, equipment)
+
+    for eql in idf.idfobjects["ZoneHVAC:EquipmentList"]:
+        # ["Zone Equipment 1 Object Type"]
+        eprint(eql.Zone_Equipment_1_Object_Type)
+        eprint(eql.Zone_Equipment_1_Name)
+
     return graph
+
 
 def quote(n):
     if ":" in n:
         return "\""+n+"\""
     return n
+
 
 def zone_graph(idf, graph=Graph()):
     graph.add_node("Outdoors", type="Outdoors")
@@ -54,6 +66,7 @@ def zone_graph(idf, graph=Graph()):
             graph.add_edge(sur_name, "Outdoors")
     return graph
 
+
 def remove_surfaces(graph):
 
     # Here, zones (and outdoors) are potentially only connected through
@@ -67,8 +80,6 @@ def remove_surfaces(graph):
         for j in range(i):
             zj = all_zones[j]
             for p in list(all_simple_paths(graph, all_zones[i], all_zones[j])):
-                if zi == "West Plenum" and zj == "West Zone":
-                    eprint(p)
                 # On veut savoir si deux zones ne sont reliées que par des
                 # surfaces. Si c'est le cas, on voudrait les relier directement.
                 is_only_surfaces = True
@@ -140,15 +151,121 @@ def parseargs():
         action="store_true",
         help="instead of outputting graphviz code, show a model of the building",
     )
-    parser.add_argument("--idd", help="the path to the idd file to be used")
+    parser.add_argument("--idd", help="the path to the idd file to be used", default=profile.PROFILE + "/Energy+.idd")
     parser.add_argument("--output", "-o", help="the output file to write to", default="/dev/stdout")
     args = parser.parse_args()
     return args
 
+
+def load_idf(idf_path):
+    iddfile = profile.iddfile
+
+    IDF.setiddname(iddfile, testing=True)
+    idf = IDF(idf_path)
+    # Draw the graph
+    return idf
+
+# the_json = "/home/terramorpha/.anonymous-profiles/1bc20b6d9bf93a4e2b394c8414d37a1e/profile/lib/python3.10/site-packages/sinergym/data/buildings/5ZoneAutoDXVAV.epJSON"
+the_json = "/home/terramorpha/.anonymous-profiles/b41daeb686dd7edc0e938e04709fedcf/profile/lib/python3.10/site-packages/sinergym/data/buildings/2ZoneDataCenterHVAC_wEconomizer.epJSON"
+
+def intern_object(g: rdflib.Graph, subject, value):
+    """Take a rdf graph, a rdf subject and a python dict/array and intern
+    it into the ontology.
+
+    Dictionnaries are interned using the keys as predicates, lists use
+    has-elem.
+
+    """
+
+    ns = rdflib.Namespace("idf")
+
+    if type(value) == list:
+        haselem = ns.haselem
+        hasindex = ns.hasindex
+        for i, elem in enumerate(value):
+            if type(elem) in [str, int, float]:
+                name = rdflib.Literal(elem)
+            elif type(elem) in [dict, list]:
+                name = rdflib.BNode()
+                intern_object(g, name, elem)
+            else:
+                raise BaseException("erreur!")
+
+            g.add((subject, haselem, name))
+            g.add((name, hasindex, rdflib.Literal(i)))
+
+    elif type(value) == dict:
+        for k, elem in value.items():
+            if type(elem) in [str, int, float]:
+                name = rdflib.Literal(elem)
+                g.add((subject, ns[k], name))
+            elif type(elem) in [dict, list]:
+                name = rdflib.BNode()
+                intern_object(g, name, elem)
+            else:
+                raise BaseException("erreur!")
+            g.add((subject, ns[k], name))
+
+
+def json_to_rdf(jsonfile):
+    """Take an epJSON file path, read it and transform it into an RDF representation
+    that can be queried (through .query(q: str)) in SPARQL.
+    """
+    n = rdflib.Namespace("idf")
+    isa = n.isa
+    g = rdflib.Graph()
+    g.bind("idf", n)
+
+    with open(jsonfile, "rb") as f:
+        j = json.load(f)
+
+    for typename, elems in j.items():
+        for name, keyvals in elems.items():
+            rTypename = rdflib.Literal(typename)
+            rName = rdflib.Literal(name)
+            g.add((rName, isa, rTypename))
+            for key, val in keyvals.items():
+                if type(val) in [str, float, int]:
+                    name = rdflib.Literal(val)
+                    g.add((rName, n[key], name))
+                if type(val) == list:
+                    name = rdflib.BNode()
+                    g.add((rName, n[key], name))
+                    intern_object(g, name, val)
+
+
+    return g
+
+def rdf_to_adjacency(g):
+    """Take a rdf representation of an idf file and return a new graph of zones
+    idf:is_connected_to each other through surfaces'
+    outside_boundary_condition_object properties."""
+
+    query = """# -*- mode: sparql -*-
+CONSTRUCT {
+  ?src idf:is_connected_to ?dst .
+} WHERE {
+  ?surface1 idf:zone_name ?src .
+
+  {
+    ?surface1  (idf:outside_boundary_condition_object | ^idf:outside_boundary_condition_object)+  ?surface2 .
+    ?surface2 idf:zone_name ?dst .
+  } UNION {
+    ?surface1 idf:outside_boundary_condition "Outdoors" .
+    BIND ("Outdoors" as ?dst)
+  }
+  FILTER (?src < ?dst)
+}
+"""
+    resp = g.query(query)
+    return resp.graph
+
+g = json_to_rdf(the_json)
+
 if __name__ == "__main__":
     args = parseargs()
 
-    iddfile = args.idd or "./V9-5-0-Energy+.idd"
+    iddfile = args.idd
     IDF.setiddname(iddfile)
 
     idffile = args.filename # prof + "/US+MF+CZ1AWH+elecres+crawlspace+IECC_2006.idf"
