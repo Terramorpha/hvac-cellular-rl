@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-import os
 import sys
-import eppy
 from eppy.modeleditor import IDF
 from networkx.drawing import nx_pydot
-from networkx import Graph, DiGraph, draw, all_simple_paths
+import networkx as nx
 import profile
 import rdflib
+import rdflib.namespace
 import json
 
 
@@ -17,12 +16,12 @@ def eprint(*args, **kwargs):
 # Initialize a directed graph
 # Add nodes and edges based on some relationships
 # Here we're adding zones and their associated HVAC systems as an example
-def equipment_graph(idf, graph=DiGraph()):
+def equipment_graph(idf, graph=nx.DiGraph()):
     for obj in idf.idfobjects["ZONEHVAC:EQUIPMENTCONNECTIONS"]:
         zone = obj.Zone_Name
-        graph.add_node(zone, type='Zone')
+        graph.add_node(zone, type="Zone")
         equipment = obj.Zone_Conditioning_Equipment_List_Name
-        graph.add_node(equipment, type='Equipment')
+        graph.add_node(equipment, type="Equipment")
         graph.add_edge(zone, equipment)
 
     for eql in idf.idfobjects["ZoneHVAC:EquipmentList"]:
@@ -35,11 +34,11 @@ def equipment_graph(idf, graph=DiGraph()):
 
 def quote(n):
     if ":" in n:
-        return "\""+n+"\""
+        return '"' + n + '"'
     return n
 
 
-def zone_graph(idf, graph=Graph()):
+def zone_graph(idf, graph=nx.Graph()):
     graph.add_node("Outdoors", type="Outdoors")
     for z in idf.idfobjects["Zone"]:
         graph.add_node(z.Name, type="Zone")
@@ -73,13 +72,13 @@ def remove_surfaces(graph):
     # surfaces. We want to connect zones that are connected through a path
     # containing exclusively surfaces, so that we can remove surfaces and keep a
     # topology that makes sense
-    all_zones = [n for n, d in graph.nodes(data=True) if d["type"] in ["Zone", "Outdoors"]]
+    all_zones = [
+        n for n, d in graph.nodes(data=True) if d["type"] in ["Zone", "Outdoors"]
+    ]
     n = len(all_zones)
     for i in range(n):
-        zi = all_zones[i]
         for j in range(i):
-            zj = all_zones[j]
-            for p in list(all_simple_paths(graph, all_zones[i], all_zones[j])):
+            for p in list(nx.all_simple_paths(graph, all_zones[i], all_zones[j])):
                 # On veut savoir si deux zones ne sont reliées que par des
                 # surfaces. Si c'est le cas, on voudrait les relier directement.
                 is_only_surfaces = True
@@ -95,6 +94,7 @@ def remove_surfaces(graph):
             graph.remove_node(n)
     return graph
 
+
 def color_graph(graph):
     for name, data in graph.nodes(data=True):
         if data["type"] == "Outdoors":
@@ -104,16 +104,19 @@ def color_graph(graph):
         if data["type"] == "Surface":
             data["color"] = "green"
 
+
 def draw_surfaces(idf):
     import matplotlib
+
     matplotlib.use("TkAgg")
     import matplotlib.pyplot as plt
+
     surfaces = []
     for sur in idf.idfobjects["BuildingSurface:Detailed"]:
         xs = []
         ys = []
         zs = []
-        for i in range(1, int(sur["Number_of_Vertices"]+1)):
+        for i in range(1, int(sur["Number_of_Vertices"] + 1)):
             xs.append(sur[f"Vertex_{i}_Xcoordinate"])
             ys.append(sur[f"Vertex_{i}_Ycoordinate"])
             zs.append(sur[f"Vertex_{i}_Zcoordinate"])
@@ -121,14 +124,9 @@ def draw_surfaces(idf):
         ys.append(ys[0])
         zs.append(zs[0])
 
-        surfaces.append({
-            "xs": xs,
-            "ys": ys,
-            "zs": zs,
-            "name": sur["Name"]
-        })
+        surfaces.append({"xs": xs, "ys": ys, "zs": zs, "name": sur["Name"]})
 
-    ax = plt.figure().add_subplot(projection='3d')
+    ax = plt.figure().add_subplot(projection="3d")
     # Draw the graph of the zones
     for sur in surfaces:
         xs = sur["xs"]
@@ -139,8 +137,10 @@ def draw_surfaces(idf):
     ax.legend()
     plt.show()
 
+
 def parseargs():
     import argparse
+
     parser = argparse.ArgumentParser(
         prog="graph.py",
         description="Create a graph of the zones from an idf file",
@@ -151,8 +151,14 @@ def parseargs():
         action="store_true",
         help="instead of outputting graphviz code, show a model of the building",
     )
-    parser.add_argument("--idd", help="the path to the idd file to be used", default=profile.PROFILE + "/Energy+.idd")
-    parser.add_argument("--output", "-o", help="the output file to write to", default="/dev/stdout")
+    parser.add_argument(
+        "--idd",
+        help="the path to the idd file to be used",
+        default=profile.PROFILE + "/Energy+.idd",
+    )
+    parser.add_argument(
+        "--output", "-o", help="the output file to write to", default="/dev/stdout"
+    )
     args = parser.parse_args()
     return args
 
@@ -165,19 +171,19 @@ def load_idf(idf_path):
     # Draw the graph
     return idf
 
-# the_json = "/home/terramorpha/.anonymous-profiles/1bc20b6d9bf93a4e2b394c8414d37a1e/profile/lib/python3.10/site-packages/sinergym/data/buildings/5ZoneAutoDXVAV.epJSON"
-the_json = "/home/terramorpha/.anonymous-profiles/b41daeb686dd7edc0e938e04709fedcf/profile/lib/python3.10/site-packages/sinergym/data/buildings/2ZoneDataCenterHVAC_wEconomizer.epJSON"
 
-def intern_object(g: rdflib.Graph, subject, value):
+def intern_object(
+    g: rdflib.Graph,
+    subject,
+    value,
+    ns=rdflib.Namespace("http://terramorpha.org/"),
+):
     """Take a rdf graph, a rdf subject and a python dict/array and intern
     it into the ontology.
 
     Dictionnaries are interned using the keys as predicates, lists use
     has-elem.
-
     """
-
-    ns = rdflib.Namespace("idf")
 
     if type(value) == list:
         haselem = ns.haselem
@@ -208,11 +214,11 @@ def intern_object(g: rdflib.Graph, subject, value):
 
 
 def json_to_rdf(jsonfile):
-    """Take an epJSON file path, read it and transform it into an RDF representation
-    that can be queried (through .query(q: str)) in SPARQL.
+    """Take an epJSON file path, read it and transform it into an RDF
+    representation that can be queried (through .query(q: str)) in SPARQL.
     """
-    n = rdflib.Namespace("idf")
-    isa = n.isa
+    n = rdflib.Namespace("http://terramorpha.org/")
+    isa = rdflib.namespace.RDF.type
     g = rdflib.Graph()
     g.bind("idf", n)
 
@@ -223,6 +229,8 @@ def json_to_rdf(jsonfile):
         for name, keyvals in elems.items():
             rTypename = rdflib.Literal(typename)
             rName = rdflib.Literal(name)
+            # rTypename = n[typename]
+            # rName = n[name]
             g.add((rName, isa, rTypename))
             for key, val in keyvals.items():
                 if type(val) in [str, float, int]:
@@ -233,10 +241,10 @@ def json_to_rdf(jsonfile):
                     g.add((rName, n[key], name))
                     intern_object(g, name, val)
 
-
     return g
 
-def rdf_to_adjacency(g):
+
+def rdf_to_adjacency(g: rdflib.Graph):
     """Take a rdf representation of an idf file and return a new graph of zones
     idf:is_connected_to each other through surfaces'
     outside_boundary_condition_object properties."""
@@ -260,7 +268,27 @@ CONSTRUCT {
     resp = g.query(query)
     return resp.graph
 
-g = json_to_rdf(the_json)
+
+def rdf_to_dot(rdf: rdflib.Graph):
+    """Take an rdflib graph and return its representation in the graphviz dot
+    format."""
+
+    o = ""
+    o += "digraph G {\n"
+    for (a, b, c) in rdf.query("""SELECT ?a ?b ?c WHERE { ?a ?b ?c . }"""):
+        o += f'"{a}" -> "{c}" [label="{b}"];\n'
+    o += "}\n"
+    return o
+
+
+def rdf_zones(rdf: rdflib.Graph):
+    """Return a list of all the zones in the building"""
+    q = """# -*- mode: sparql -*-
+SELECT ?name WHERE {
+  ?name a "Zone" .
+}"""
+    return list(set(x.value for (x,) in rdf.query(q)))
+
 
 if __name__ == "__main__":
     args = parseargs()
@@ -268,7 +296,7 @@ if __name__ == "__main__":
     iddfile = args.idd
     IDF.setiddname(iddfile)
 
-    idffile = args.filename # prof + "/US+MF+CZ1AWH+elecres+crawlspace+IECC_2006.idf"
+    idffile = args.filename  # prof + "/US+MF+CZ1AWH+elecres+crawlspace+IECC_2006.idf"
     idf = IDF(idffile)
     # Draw the graph
 
