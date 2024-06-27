@@ -1,5 +1,7 @@
 import jax.numpy as np
+import jax.typing as jtyping
 from dataclasses import dataclass
+import typing
 
 
 @dataclass
@@ -50,7 +52,15 @@ class Trajectory:
         return np.array(out)
 
 
-def merge_trajectories(trajs: list[Trajectory], gamma):
+def merge_trajectories(
+    trajs: list[Trajectory], gamma
+) -> typing.Tuple[
+    jtyping.ArrayLike,
+    jtyping.ArrayLike,
+    jtyping.ArrayLike,
+    jtyping.ArrayLike,
+    jtyping.ArrayLike,
+]:
     start_state = []
     action_probability = []
     action = []
@@ -72,3 +82,7 @@ def merge_trajectories(trajs: list[Trajectory], gamma):
         np.vstack(reward_to_go),
         np.vstack(end_state),
     )
+
+
+def mean_reward(trajectories):
+    return sum(traj.sum_of_rewards() for traj in trajectories) / len(trajectories)

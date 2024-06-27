@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import typing
+import math
 
 
 @dataclass
@@ -16,10 +18,19 @@ class ProgressIterator:
 @dataclass
 class Progress:
     name: str
-    elements: list
+    elements: typing.Generator
 
     def __enter__(self):
         return ProgressIterator(self.name, [x for x in self.elements])
 
     def __exit__(self, exc_type, exc_value, traceback):
         print("")
+
+
+def until_convergence(f, epsilon):
+    x_last = f()
+    while True:
+        x_new = f()
+        if math.fabs(x_new - x_last) < epsilon:
+            break
+        x_last = x_new
