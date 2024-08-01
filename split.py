@@ -3,7 +3,6 @@ import graph
 from dataclasses import dataclass
 
 
-@dataclass
 class FeaturePartition:
     """Used to separates component of the action space (and observation space)
     into bins corresponding to each zone.

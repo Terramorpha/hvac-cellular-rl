@@ -31,6 +31,14 @@ class Q(linen.Module):
         return np.reshape(x, ())
 
 
+class MultiQ(linen.Module):
+    n_qs: int
+
+    @linen.compact
+    def __call__(self, observation, action):
+        return min([Q()(observation, action) for _ in range(self.n_qs)])
+
+
 class Policy(linen.Module):
     out_dims: int
 
@@ -87,6 +95,7 @@ class Model:
         epochs=100,
         until_convergence: bool = False,
         convergence_epsilon=100,
+        batch_size=128,
     ):
 
         print("updating the pi function")
@@ -185,6 +194,7 @@ class Model:
                     self.q_params = optax.apply_updates(self.q_params, updates)
             print(f" loss: {losses/len(trajectories)}")
         print()
+
 
 def init_model(key: jax.dtypes.prng_key, obs_sample, action_sample):
     k1, k2 = random.split(key)
@@ -297,96 +307,115 @@ def print_trajectories_stats(traj: list[trajectory.Trajectory]):
     print(f"mean reward of current trajectories: {mean_reward}")
 
 
-env = gym.make("Eplus-demo-v1")
+def main():
+    N_things = 10
 
-key = random.key(12345)
-model_key, traj_key, pi_key, q_key, key = random.split(key, 5)
+    env = gym.make("Eplus-demo-v1")
+    key = random.key(12345)
+    model_key, traj_key, pi_key, q_key, key = random.split(key, 5)
+    # Pour obtenir la shape
+    obs_sample = env.observation_space.sample()
+    action_sample = env.action_space.sample()
 
-# Pour obtenir la shape
-obs_sample = env.observation_space.sample()
-action_sample = env.action_space.sample()
+    def random_policy(state):
+        return env.action_space.sample()
 
-
-def random_policy(state):
-    return env.action_space.sample()
-
-
-@cache()
-def random_trajectories():
-
-    return generate_trajectories(env, random.fold_in(traj_key, -1), random_policy, 100)
-
-
-mr = trajectory.mean_reward(random_trajectories)
-print(f"mean reward of random policy: {mr}")
-
-
-@cache()
-def initial_model_with_q():
-    mod = init_model(model_key, obs_sample, action_sample)
-
-    mod.train_q_trajectories(
-        env,
-        random.fold_in(q_key, -1),
-        random_trajectories,
-        epochs=100,
-        learning_rate=1e-3,
-        policy=random_policy,
-        gamma=0.95,
-    )
-    return mod
-
-
-@cache()
-def initial_model_with_pi():
-    initial_model_with_q.train_pi_trajectories(
-        env,
-        random.fold_in(pi_key, -1),
-        random_trajectories,
-        learning_rate=2e-2,
-        until_convergence=True,
-    )
-    return initial_model_with_q
-
-
-all_trajectories = random_trajectories
-trajectories = random_trajectories
-
-model = initial_model_with_pi
-
-for i in range(100):
-    print(f"i: {i}")
-
-    @cache(name=f"trajectories_{i}")
-    def new_trajectories():
-        return model.many_trajectories(env, random.fold_in(traj_key, i), n=50)
-
-    mr = trajectory.mean_reward(new_trajectories)
-    print(f"total mean reward: {mr}")
-    # trajectories += new_trajectories
-    trajectories = new_trajectories
-    all_trajectories += new_trajectories
-
-    @cache(name=f"q_trained_{i}")
-    def q_trained():
-        model.train_q_trajectories(
-            env,
-            random.fold_in(q_key, i),
-            all_trajectories,
-            epochs=20,
-            learning_rate=1e-4,
+    @cache()
+    def random_trajectories():
+        return generate_trajectories(
+            env, random.fold_in(traj_key, -1), random_policy, 100
         )
-        return model
 
-    @cache(name=f"pi_trained_{i}")
-    def pi_trained():
-        q_trained.train_pi_trajectories(
-            env,
-            random.fold_in(pi_key, i),
-            all_trajectories,
-            learning_rate=1e-3,
-            epochs=100,
-        )
-        return q_trained
+    mr = trajectory.mean_reward(random_trajectories)
+    print(f"mean reward of random policy: {mr}")
 
-    model = pi_trained
+    @cache()
+    def initial_models_with_q():
+        mods = []
+
+        for i in range(N_things):
+
+            mod = init_model(random.fold_in(model_key, i), obs_sample, action_sample)
+
+            mod.train_q_trajectories(
+                env,
+                random.fold_in(random.fold_in(q_key, -1), i),
+                random_trajectories,
+                epochs=100,
+                learning_rate=1e-3,
+                policy=random_policy,
+                gamma=0.95,
+            )
+            mods.append(mod)
+        return mods
+
+    @cache()
+    def initial_models_with_pi():
+        mods = []
+        for i in range(N_things):
+            initial_models_with_q[i].train_pi_trajectories(
+                env,
+                random.fold_in(random.fold_in(pi_key, -1), i),
+                random_trajectories,
+                learning_rate=2e-2,
+                until_convergence=True,
+            )
+            mods.append(initial_models_with_q[i])
+
+        return mods
+
+    all_trajectories = random_trajectories
+    trajectories = random_trajectories
+
+    models = initial_models_with_pi
+
+    for epoch in range(100):
+
+        @cache(name=f"trajectories_{epoch}")
+        def new_trajectories():
+            trajs = []
+            for i in range(N_things):
+                trajs += models[i].many_trajectories(
+                    env, random.fold_in(traj_key, i), n=50
+                )
+            return trajs
+
+        mr = trajectory.mean_reward(new_trajectories)
+        print(f"total mean reward: {mr}")
+        # trajectories += new_trajectories
+        trajectories = new_trajectories
+        all_trajectories += new_trajectories
+
+        @cache(name=f"q_trained_{epoch}")
+        def q_trained():
+            mods = []
+            for i in range(N_things):
+                models[i].train_q_trajectories(
+                    env,
+                    random.fold_in(q_key, i),
+                    all_trajectories,
+                    epochs=20,
+                    learning_rate=1e-4,
+                )
+                mods.append(models[i])
+            return mods
+
+        @cache(name=f"pi_trained_{epoch}")
+        def pi_trained():
+            mods = []
+            for i in range(N_things):
+                q_trained[i].train_pi_trajectories(
+                    env,
+                    random.fold_in(pi_key, i),
+                    all_trajectories,
+                    learning_rate=1e-3,
+                    epochs=100,
+                )
+                mods.append(q_trained[i])
+            return mods
+
+        model = pi_trained
+
+
+if __name__ == "__main__":
+    main()
