@@ -3,6 +3,7 @@ import typing
 import math
 import pathlib
 import pickle
+import queue
 
 
 @dataclass
@@ -83,3 +84,33 @@ def cache(name: str | None = None):
                 return val
 
     return func
+
+
+class AttrDict(dict):
+    def __getattr__(self, name):
+        return self[name]
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+    def __delattr__(self, name):
+        del self[name]
+
+    def __dir__(self):
+        return list(self.keys())
+
+
+class Queue:
+    q: queue.Queue
+
+    def __init__(self):
+        self.q = queue.Queue(1)
+
+    def put(self, v):
+        self.q.put("blank")
+        self.q.put(v)
+
+    def get(self):
+        b = self.q.get()
+        assert b == "blank"
+        return self.q.get()

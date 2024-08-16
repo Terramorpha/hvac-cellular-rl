@@ -290,6 +290,15 @@ SELECT ?name WHERE {
     return list(set(x.value for (x,) in rdf.query(q)))
 
 
+def rdf_schedules(rdf: rdflib.Graph):
+    """Return a list of all the scheduler names in the building"""
+    q = """# -*- mode: sparql -*-
+SELECT ?name WHERE {
+  ?name a "Schedule:Compact" .
+}"""
+    return list(set(x.value for (x,) in rdf.query(q)))
+
+
 if __name__ == "__main__":
     args = parseargs()
 
