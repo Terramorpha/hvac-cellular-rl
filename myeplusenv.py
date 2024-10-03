@@ -4,8 +4,9 @@ import gymnasium
 import policy
 import numpy as np
 import pandas
-
+import dataset
 from gymnasium import spaces
+import utils
 
 
 class EnergyPlusEnv(gymnasium.Env):
@@ -13,7 +14,6 @@ class EnergyPlusEnv(gymnasium.Env):
     make_energyplus: typing.Callable[[], myeplus.EnergyPlus]
 
     def action_transform(self, v):
-        # print(f"got {v}")
         return policy.force_actuator_smaller(
             {
                 "cooling_sch": v[0],
@@ -48,7 +48,7 @@ class EnergyPlusEnv(gymnasium.Env):
         # print(f"{obs}, {over}")
         keys, values = dataset.flatten_observation(obs)
         values = pandas.DataFrame({key: [val] for key, val in zip(keys, values)})
-        values = preprocess_time(values)
+        values = utils.preprocess_time(values)
         # print(values)
         return np.array(values)[0], {}
 
@@ -60,7 +60,7 @@ class EnergyPlusEnv(gymnasium.Env):
         if not finished:
             keys, values = dataset.flatten_observation(obs)
             values = pandas.DataFrame({key: [val] for key, val in zip(keys, values)})
-            values = preprocess_time(values)
+            values = utils.preprocess_time(values)
             values = np.array(values)[0]
             self.last_obs = values
             return (values, self.reward_fn(obs), False, False, {})
