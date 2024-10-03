@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 import sys
-from eppy.modeleditor import IDF
-from networkx.drawing import nx_pydot
-import networkx as nx
 import profile
 import rdflib
 import rdflib.namespace
@@ -13,57 +10,10 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-# Initialize a directed graph
-# Add nodes and edges based on some relationships
-# Here we're adding zones and their associated HVAC systems as an example
-def equipment_graph(idf, graph=nx.DiGraph()):
-    for obj in idf.idfobjects["ZONEHVAC:EQUIPMENTCONNECTIONS"]:
-        zone = obj.Zone_Name
-        graph.add_node(zone, type="Zone")
-        equipment = obj.Zone_Conditioning_Equipment_List_Name
-        graph.add_node(equipment, type="Equipment")
-        graph.add_edge(zone, equipment)
-
-    for eql in idf.idfobjects["ZoneHVAC:EquipmentList"]:
-        # ["Zone Equipment 1 Object Type"]
-        eprint(eql.Zone_Equipment_1_Object_Type)
-        eprint(eql.Zone_Equipment_1_Name)
-
-    return graph
-
-
 def quote(n):
     if ":" in n:
         return '"' + n + '"'
     return n
-
-
-def zone_graph(idf, graph=nx.Graph()):
-    graph.add_node("Outdoors", type="Outdoors")
-    for z in idf.idfobjects["Zone"]:
-        graph.add_node(z.Name, type="Zone")
-    for sur in idf.idfobjects["BuildingSurface:Detailed"]:
-        sur_name = quote(sur.Name)
-        zone = sur.Zone_Name
-        # On associe la surface à sa zone.
-        graph.add_node(zone, type="Zone")
-        graph.add_node(sur_name, type="Surface")
-        graph.add_edge(zone, sur_name)
-        obc = sur.Outside_Boundary_Condition
-        # Et on associe aussi la surface à la chose qui est "outside".
-        if obc == "Zone":
-            zone_to = sur.Outside_Boundary_Condition_Object
-            graph.add_node(zone_to, type="Zone")
-            graph.add_edge(sur_name, zone_to)
-        elif obc == "Surface":
-            sur_to = quote(sur.Outside_Boundary_Condition_Object)
-            graph.add_node(sur_to, type="Surface")
-            graph.add_edge(sur_name, sur_to)
-        elif obc == "Outdoors":
-            zone_from = sur.Zone_Name
-            graph.add_node(zone_from, type="Zone")
-            graph.add_edge(sur_name, "Outdoors")
-    return graph
 
 
 def remove_surfaces(graph):
@@ -103,6 +53,48 @@ def color_graph(graph):
             data["shape"] = "rectangle"
         if data["type"] == "Surface":
             data["color"] = "green"
+
+
+def test():
+    with open("buildings/crawlspace.epJSON", "rb") as f:
+        obj = json.load(f)
+
+    def draw_surfaces_epjson(obj):
+
+        import matplotlib
+
+        matplotlib.use("TkAgg")
+        import matplotlib.pyplot as plt
+
+        surfaces = []
+        for name, val in obj["BuildingSurface:Detailed"].items():
+            print(name)
+            xs = []
+            ys = []
+            zs = []
+
+            for vertex in val["vertices"]:
+                xs.append(vertex["vertex_x_coordinate"])
+                ys.append(vertex["vertex_y_coordinate"])
+                zs.append(vertex["vertex_z_coordinate"])
+
+            xs.append(xs[0])
+            ys.append(ys[0])
+            zs.append(zs[0])
+            surfaces.append({"xs": xs, "ys": ys, "zs": zs, "name": name})
+        ax = plt.figure().add_subplot(projection="3d")
+        # Draw the graph of the zones
+        for sur in surfaces:
+            xs = sur["xs"]
+            ys = sur["ys"]
+            zs = sur["zs"]
+            ax.plot(xs, ys, zs, label=sur["name"])
+
+        # ax.legend()
+        # plt.show()
+        plt.savefig("building.svg")
+
+    draw_surfaces_epjson(obj)
 
 
 def draw_surfaces(idf):
@@ -161,15 +153,6 @@ def parseargs():
     )
     args = parser.parse_args()
     return args
-
-
-def load_idf(idf_path):
-    iddfile = profile.iddfile
-
-    IDF.setiddname(iddfile, testing=True)
-    idf = IDF(idf_path)
-    # Draw the graph
-    return idf
 
 
 def intern_object(
@@ -297,25 +280,3 @@ SELECT ?name WHERE {
   ?name a "Schedule:Compact" .
 }"""
     return list(set(x.value for (x,) in rdf.query(q)))
-
-
-if __name__ == "__main__":
-    args = parseargs()
-
-    iddfile = args.idd
-    IDF.setiddname(iddfile)
-
-    idffile = args.filename  # prof + "/US+MF+CZ1AWH+elecres+crawlspace+IECC_2006.idf"
-    idf = IDF(idffile)
-    # Draw the graph
-
-    if args.draw:
-        draw_surfaces(idf)
-    else:
-        graph = zone_graph(idf)
-        color_graph(graph)
-        graph = equipment_graph(idf, graph=graph)
-        remove_surfaces(graph)
-        # pos = draw(graph, with_labels=True, node_color='skyblue', node_size=2000, font_size=10, font_weight='bold')
-        # plt.show()
-        nx_pydot.write_dot(graph, args.output)

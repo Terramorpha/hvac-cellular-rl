@@ -1,5 +1,48 @@
-#+title: HVAC cellular reinforcement learning
+#+title: Energyplus offline reinforcement learning experiments
 
-Our goal is to transfer the approached presented in
-https://arxiv.org/pdf/2007.04976 to the problem of HVAC. To do this, we use
-[[https://www.energycodes.gov/prototype-building-models][building models from the DOA]] to train our cellular policy.
+The main training procedures live in [[file:train_policy.py]]. There are procedures
+for training online (using soft actor-critic) and offline (implicit Q-learning)
+
+For online training, a gymnasium wrapping the energyplus interface (which adds
+restarting capabilities and a reward function on top of the primitive energyplus
+interface) lives in [[file:myeplusenv.py]]. That code uses the abstraction defined
+in [[file:myeplus.py]] to communicate to an energyplus instance. For an energyplus
+instance to make sense, it must be equipped with a building file, a weather
+file, the actuators it should control and a template containing what variables
+it should read into the observations. Those 4-tuples are defined in
+[[file:envs.py]].
+
+For offline training, a dataset of transitions must be generated. This is done
+in [[file:dataset.py]]. For a dataset of transitions to be generated, a "classical"
+policy must be used. The combinators used to create such a policy are defined in
+[[file:policy.py]].
+
+The entrypoint of a training run (in a cluster) is [[file:train_policy.py]] which
+you can use through a simple command line interface
+
+#+begin_src shell :results output
+python3 train_policy.py --help
+#+end_src
+
+#+RESULTS:
+#+begin_example
+                                                                                
+ Usage: train_policy.py [OPTIONS] COMMAND [ARGS]...                             
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --install-completion          Install completion for the current shell.      │
+│ --show-completion             Show completion for the current shell, to copy │
+│                               it or customize the installation.              │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ offline-iql-random-params                                                    │
+│ offline-sac-random-params                                                    │
+│ online-random-params                                                         │
+│ train-offline-iql                                                            │
+│ train-offline-sac                                                            │
+│ train-online-sac                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+#+end_example
+

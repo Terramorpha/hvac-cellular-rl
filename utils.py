@@ -4,6 +4,9 @@ import math
 import pathlib
 import pickle
 import queue
+import threading
+import pandas
+import numpy as np
 
 
 @dataclass
@@ -41,7 +44,7 @@ def until_convergence(f, epsilon):
 
 class DataLoader:
     batch_size: int
-    columns: any
+    columns: typing.Any
     length: int
 
     def __init__(self, *args, batch_size=16):
@@ -100,17 +103,87 @@ class AttrDict(dict):
         return list(self.keys())
 
 
-class Queue:
+class Channel:
     q: queue.Queue
 
     def __init__(self):
-        self.q = queue.Queue(1)
+        self.q = queue.Queue()
 
     def put(self, v):
-        self.q.put("blank")
-        self.q.put(v)
+
+        wait_q = self.q.get()
+        wait_q.put(v)
 
     def get(self):
-        b = self.q.get()
-        assert b == "blank"
-        return self.q.get()
+        wait_q = queue.Queue()
+        self.q.put(wait_q)
+
+        return wait_q.get()
+
+
+@dataclass
+class Leaf:
+    inner: typing.Any
+
+    def __init__(self, x):
+        self.inner = x
+
+
+def fmap(func, o, LeafType=Leaf):
+    """This module implements the functor interface: you have a pytree with
+    leaves denoted with Leaf. when you apply fmap to such an object, the
+    function will be applied to each leaf to reconstruct a tree of the same
+    shape.
+
+    This module is useful to write shape-agnostic data transformations.
+
+    """
+
+    if type(o) == dict:
+        return {k: fmap(func, v, LeafType=LeafType) for k, v in o.items()}
+    elif type(o) == list:
+        return [fmap(func, v, LeafType=LeafType) for v in o]
+    elif type(o) == LeafType:
+        return LeafType(func(o.inner))
+    else:
+        return o
+
+
+def collect(o, LeafType=Leaf):
+    l = []
+    fmap(l.append, o, LeafType)
+    return l
+
+
+def ri_signal(data, period):
+    """x ↦ φ(x) such that φ(x) = φ(x + period)"""
+    return (
+        np.cos(2 * np.pi / period * data),
+        np.sin(2 * np.pi / period * data),
+    )
+
+
+def preprocess_time(observations: pandas.DataFrame):
+    """Encode the time_of_day, day_of_week and day_of_year scalars onto a circle
+    where 0:00 is as similar to 01:00 as it is to 23:00."""
+    # TODO: peut-être que day of month ou moon cycle est utile? Je sais pas
+    # trop.
+    day_r, day_i = ri_signal(np.array(observations.time_time_of_day), 24.0)
+    week_r, week_i = ri_signal(np.array(observations.time_day_of_week), 8.0)
+    year_r, year_i = ri_signal(np.array(observations.time_day_of_year), 365.25)
+
+    new_cols = pandas.DataFrame(
+        {
+            "time_of_day_r": day_r,
+            "time_of_day_i": day_i,
+            "day_of_week_r": week_r,
+            "day_of_week_i": week_i,
+            "day_of_year_r": year_r,
+            "day_of_year_i": year_i,
+        }
+    )
+    observations = observations.drop(
+        ["time_time_of_day", "time_day_of_week", "time_day_of_year"], axis=1
+    )
+    observations = pandas.concat((observations, new_cols), axis=1)
+    return observations

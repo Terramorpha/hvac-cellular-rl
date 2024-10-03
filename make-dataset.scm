@@ -1,6 +1,3 @@
-#!/usr/bin/env -S guix build --no-offload -f
-!#
-
 ;;; This guix script is used to preprocess the idf file through each version
 ;;; converter, then through the ExpandObjects program and finally through the
 ;;; ConvertInputFormat to turn it into epJSON.
@@ -9,24 +6,19 @@
  (srfi srfi-1)
  (guix gexp)
  (guix build utils)
- (terramorpha packages energyplus))
+ (guix store)
+ (guix derivations))
+
+(for-each
+ (lambda (p)
+   (add-to-load-path p))
+ (string-split (getenv "GUIX_PACKAGE_PATH")
+               #\:))
+
+(use-modules (terramorpha packages energyplus))
 
 (define energyplus
-  energyplus-23.1)
-
-(define versions
-  '(;; "9.0.0"
-    ;; "9.1.0"
-    ;; "9.2.0"
-    ;; "9.3.0"
-    ;; "9.4.0"
-    ;; "9.5.0"
-    ;; "9.6.0"
-    "22.1.0"
-    "22.2.0"
-    "23.1.0"))
-    ;; "23.2.0"
-    ;; "24.1.0"
+  energyplus)
 
 (define* (update-version file #:key from to)
   (define (turn-version v)
@@ -56,11 +48,10 @@
        (copy-file "./file.idfnew"
                   #$output))))
 
-(define (update-all-the-way filename)
-  (define name (basename filename))
+(define (update-all-the-way file versions)
   (define transitions (map (lambda (from to)
                              (lambda (file)
-                               (computed-file (string-append (car (string-split name #\.)) "-" to ".idf")
+                               (computed-file (string-append "version-" to ".idf")
                                               (update-version file
                                                               #:from from
                                                               #:to to)
@@ -70,28 +61,8 @@
                            (cdr versions)))
 
  (fold (lambda (updater file) (updater file))
-       (local-file filename) transitions))
-
-(define prof
-  (getenv "GUIX_LOAD_PROFILE"))
-
-(define all-idf-files
-  (find-files (string-append prof "/share/energyplus/buildings/") ".*\\.idf"))
-
-(define all-the-updated-files
-  (map update-all-the-way all-idf-files))
-
-(define new-dataset
-  (computed-file
-   "energyplus-dataset-family-1a-24.1.0"
-   (with-imported-modules
-    '((guix build utils))
-    #~(begin
-        (use-modules (guix build utils))
-        (for-each
-         (lambda (filename)
-            (install-file filename (string-append #$output "/share/energyplus/buildings/"))))
-        '#$all-the-updated-files))))
+       file
+       transitions))
 
 (define (expand-objects file)
   (computed-file
@@ -104,9 +75,9 @@
         (invoke #$(file-append energyplus "/bin/ExpandObjects"))
         (copy-file "./expanded.idf" #$output)))))
 
-(define (convert-format file)
+(define (to-json file)
   (computed-file
-   "converted.json"
+   "converted-to.json"
    (with-imported-modules
     '((guix build utils))
     #~(begin
@@ -116,10 +87,75 @@
         (copy-file "./in.epJSON" #$output)))
    #:local-build? #f))
 
+(define (from-json file)
+  (computed-file
+   "converted-to.idf"
+   (with-imported-modules
+    '((guix build utils))
+    #~(begin
+        (use-modules (guix build utils))
+        (copy-file #$file "./in.epJSON")
+        (invoke #$(file-append energyplus "/bin/ConvertInputFormat") "./in.epJSON")
+        (copy-file "./in.idf" #$output)))
+   #:local-build? #f))
 
-;; (convert-format
-;;  (expand-objects
-;;   (update-all-the-way "./file.idf")))
+(define versions
+  '(;; "9.0.0"
+    ;; "9.1.0"
+    ;; "9.2.0"
+    ;; "9.3.0"
+    ;; "9.4.0"
+    ;; "9.5.0"
+    ;; "9.6.0"
+    ;; "22.1.0"
+    ;; "22.2.0"
+    "23.1.0"
+    "23.2.0"
+    "24.1.0"))
 
-(convert-format
- (update-all-the-way "./file.idf"))
+(define alburquerque
+  (to-json
+   (update-all-the-way
+    (file-append energyplus-dataset-commercial-small-office
+                 "/share/energyplus/buildings/ASHRAE901_OfficeSmall_STD2004_Albuquerque.idf")
+    '("22.1.0" "22.2.0" "23.1.0" "23.2.0" "24.1.0"))))
+
+(define crawlspace
+  (to-json
+   (expand-objects
+    (update-all-the-way
+     (file-append energyplus-dataset-residential-1a
+                  "/share/energyplus/buildings/US+MF+CZ1AWH+elecres+crawlspace+IECC_2006.idf")
+     '("9.5.0"
+       "9.6.0"
+       "22.1.0"
+       "22.2.0"
+       "23.1.0"
+       "23.2.0"
+       "24.1.0")))))
+
+
+;; (to-json
+;;  (update-all-the-way (from-json (local-file filename))
+;;                      versions))
+
+
+(define (dataset)
+  (file-union
+   "dataset"
+   `(("alburquerque.epJSON" ,alburquerque)
+     ("crawlspace.epJSON" ,crawlspace))))
+
+(define store (open-connection))
+
+(define-values (drv conn) ((lower-object (dataset)) store))
+
+(build-derivations conn (list drv))
+
+(define p (derivation-output-path (cdar (derivation-outputs drv))))
+
+(use-modules (guix build utils))
+
+(copy-recursively p "./buildings"
+                  #:follow-symlinks? #t
+                  #:keep-permissions? #f)
