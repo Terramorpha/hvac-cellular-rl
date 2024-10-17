@@ -50,7 +50,7 @@ class EnergyPlusEnv(gymnasium.Env):
         values = pandas.DataFrame({key: [val] for key, val in zip(keys, values)})
         values = utils.preprocess_time(values)
         # print(values)
-        return np.array(values)[0], {}
+        return np.array(values)[0], {"raw_observation": obs}
 
     def step(self, action):
         # Do something about the actions
@@ -63,6 +63,6 @@ class EnergyPlusEnv(gymnasium.Env):
             values = utils.preprocess_time(values)
             values = np.array(values)[0]
             self.last_obs = values
-            return (values, self.reward_fn(obs), False, False, {})
+            return (values, self.reward_fn(obs), False, False, {"raw_observation": obs})
         else:
             return (self.last_obs, 0.0, True, False, {})
