@@ -29,8 +29,7 @@ import myeplusenv
 import utils
 
 dataset_files = [
-    "pickles/day_night_2.pkl.xz",
-    "pickles/day_night.pkl.xz",
+    "pickles/day_night_1.pkl.xz",
     "pickles/random_walk_1.pkl.xz",
     "pickles/random_walk_2.pkl.xz",
 ]
@@ -43,7 +42,9 @@ EVAL_TIME_STEP = 5000
 
 def make_eval_env():
     return myeplus.EnergyPlus(
-        *dataset.config, instance="eval", max_steps=EVAL_TIME_STEP
+        *dataset.config,
+        instance="eval",
+        max_steps=EVAL_TIME_STEP,
     )
 
 
@@ -119,9 +120,7 @@ def train_offline_sac(
         n_steps_per_epoch,
         logger_adapter=logger_adapter,
         experiment_name=f"offline_sac{name}",
-        evaluators={
-            "evaluation": d3rlpy.metrics.EnvironmentEvaluator(eval_env, n_trials=1)
-        },
+        evaluators={"evaluation": d3rlpy.metrics.EnvironmentEvaluator(eval_env)},
     )
 
 
@@ -172,9 +171,7 @@ def train_offline_iql(
         n_steps_per_epoch,
         logger_adapter=logger_adapter,
         experiment_name=f"offline_iql{name}",
-        evaluators={
-            "evaluation": d3rlpy.metrics.EnvironmentEvaluator(eval_env, n_trials=1)
-        },
+        evaluators={"evaluation": d3rlpy.metrics.EnvironmentEvaluator(eval_env)},
     )
 
 
@@ -193,7 +190,9 @@ def train_online_sac(
         return
 
     def make_train_env():
-        return myeplus.EnergyPlus(*dataset.config, instance="train", max_steps=10_000)
+        return myeplus.EnergyPlus(
+            *dataset.config, instance="train", max_steps=EVAL_TIME_STEP
+        )
 
     # used to calculate the mean and std reward.
     runresults: list[RunResult] = [load(dataset_file) for dataset_file in dataset_files]
@@ -272,6 +271,7 @@ def offline_sac_random_params():
         gamma=gamma,
         actor_learning_rate=actor_learning_rate,
         critic_learning_rate=critic_learning_rate,
+        n_steps=2_000_000,
     )
 
 
@@ -286,6 +286,7 @@ def offline_iql_random_params():
         gamma=gamma,
         actor_learning_rate=actor_learning_rate,
         critic_learning_rate=critic_learning_rate,
+        n_steps=2_000_000,
     )
 
 
@@ -299,6 +300,7 @@ def online_random_params():
         gamma=gamma,
         actor_learning_rate=actor_learning_rate,
         critic_learning_rate=critic_learning_rate,
+        n_steps=2_000_000,
     )
 
 
@@ -306,6 +308,27 @@ def test_something():
     mod = SAC.from_json("./params.json")
     mod.load_model("./model_200000.d3")
     return mod
+
+
+@app.command()
+def view_policy(f: Path):
+    algo = d3rlpy.load_learnable(f)
+
+    eval_env = myeplusenv.EnergyPlusEnv(
+        make_eval_env,
+        dataset.compute_reward_fn,
+    )
+
+    truncated = False
+    stopped = False
+    obs, info = eval_env.reset()
+    while not (truncated or stopped):
+        true_obs = info["raw_observation"]
+        act = algo.predict(obs.reshape(1, -1))
+        print(true_obs)
+        print(act[0, :])
+        obs, r, truncated, stopped, info = eval_env.step(act[0, :])
+        print(r)
 
 
 if __name__ == "__main__":
