@@ -3,7 +3,7 @@ import utils
 
 
 def _penality(mintmp, t, maxtmp):
-    return max(t - maxtmp, 0) - min(t - mintmp, 0)
+    return min(t - mintmp, 0) - max(t - maxtmp, 0)
 
 
 def combine(a, b):
