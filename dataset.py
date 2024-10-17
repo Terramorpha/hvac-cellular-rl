@@ -7,7 +7,9 @@ from collections import namedtuple
 import pickle
 import lzma
 import typing
+import typer
 
+app = typer.Typer()
 # Our environment configuration (building, weather, variables)
 config = envs.crawlspace()
 
@@ -104,7 +106,22 @@ def test():
     return env
 
 
+@app.command()
+def generate_day_night():
+    day_night("day_night_1")
+
+
+@app.command()
+def generate_random_walks():
+    random_walk("random_walk_1")
+    random_walk("random_walk_2")
+
+
+@app.command()
+def generate_all_datasets():
+    generate_day_night()
+    generate_random_walks()
+
+
 if __name__ == "__main__":
-    # random_walk("random_walk_1")
-    # random_walk("random_walk_2")
-    day_night("day_night_2")
+    app()
