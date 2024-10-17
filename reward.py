@@ -13,9 +13,23 @@ def combine(a, b):
     return combined_reward
 
 
+TEMPERATURE_ZONE_BLACKLIST = [
+    "environment",
+    "attic",
+    "Breezeway",
+    "crawlspace",
+]
+
+
+def remove_blacklisted(obs_tmp):
+    return {k: v for k, v in obs_tmp.items() if k not in TEMPERATURE_ZONE_BLACKLIST}
+
+
 def range_reward(mintmp, maxtmp):
     def range_reward_fn(obs):
-        temperatures = utils.collect(obs["temperature"], myeplus.Variable)
+        temperatures = utils.collect(
+            remove_blacklisted(obs["temperature"]), myeplus.Variable
+        )
         return -sum(map(lambda t: _penality(mintmp, t, maxtmp), temperatures)) / len(
             temperatures
         )
